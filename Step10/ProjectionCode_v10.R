@@ -1,4 +1,23 @@
-setwd("/Users/bcbrewer/Documents/Projects (Holding)/FloodDeathRate/Data/Raw")
+# SETUP & PARAMETERS ==============================================================================
+
+# !!! THE CURRENT WORKING DIRECTORY SHOULD BE THE STEP10 FOLDER !!!
+
+# The YEAR_THRESHOLD parameter indicates the first year for which events should be 
+# included in the analysis. The primary results use 1990; however, we also considered
+# the year 2000. Some portions of the script are hard-coded to produce results for
+# both 1990 and 2000.
+
+YEAR_THRESHOLD <- 1990
+
+# The B parameter indicates the number of iterations to utilize when performing 
+# bootstrapping. NOTE - Runtime will be quite long (>24 hours) when using values
+# above 100. If simply testing out the script, use a small number, like B <- 5.
+
+B <- 5
+
+# BEGIN SCRIPT ====================================================================================
+
+setwd("../Step07")
 
 library(dplyr)
 library(readxl)
@@ -18,10 +37,9 @@ library(splines2)
 library(ggstatsplot)
 library(performance)
 library(rWCVPdata)
-library(beepr)
 
 ####Importing data
-df <-read_excel("7b output 5.xlsx")
+df <- read_excel("7 output - EMDAT events with exposed pops.xlsx")
 
 #create column with disaster number only, removing country code, to get an event specific variable
 df <- df %>%
@@ -52,14 +70,8 @@ df <- df%>% filter(Start.Year>1989)
 
 library(modifiedmk)
 
-# Filters:
-#   - All events are after 1989.
-#       - Am also considering when events are after 1999.
-#   - All events have an exposed population of at least 1.
-#   - Death rate must be less than 1.
+trendData <- trendData[trendData$Start.Year >= YEAR_THRESHOLD, ]
 
-trendData <- trendData[trendData$Start.Year > 1989, ]
-# trendData <- trendData[trendData$Start.Year > 1999, ]
 trendData <- trendData[trendData$pop.exposed.local.else.adm1.else.national.100yr > 0, ]
 
 trendData$Start.Day[!is.na(trendData$Start.Day) & nchar(trendData$Start.Day) == 1] <- 
@@ -71,10 +83,10 @@ trendData$Start.Month[!is.na(trendData$Start.Month) & nchar(trendData$Start.Mont
                                      nchar(trendData$Start.Month) == 1], sep = "")
 
 trendData$Start.Date <- as.Date(
-                        paste(trendData$Start.Day, "-",
-                              trendData$Start.Month, "-",
-                              trendData$Start.Year, sep = ""),
-                        format = "%d-%m-%Y")
+  paste(trendData$Start.Day, "-",
+        trendData$Start.Month, "-",
+        trendData$Start.Year, sep = ""),
+  format = "%d-%m-%Y")
 
 trendData$death.rate <- trendData$Total.Deaths / 
   trendData$pop.exposed.local.else.adm1.else.national.100yr
@@ -98,6 +110,8 @@ round(mkttest(trendData$death.rate.na.as.0[!is.na(trendData$death.rate.na.as.0)]
 
 plot(trendData$Start.Date, trendData$pop.exposed.local.else.adm1.else.national.100yr)
 round(mkttest(trendData$pop.exposed.local.else.adm1.else.national.100yr), 3)
+
+setwd("../Step10")
 
 hemi <- read.csv("countryList.csv")
 names(hemi)[1] <- "Country"
@@ -358,8 +372,6 @@ lines(c(0.1, 4.9), c(0.20, 0.20), lty = 2, col = "black")
 lines(c(0.1, 4.9), c(0.25, 0.25), lty = 2, col = "black")
 lines(c(0.1, 4.9), c(0.30, 0.30), lty = 2, col = "black")
 
-# new.df.gnidr <- new.df.gnidr[new.df.gnidr$death.rate != 0, ]
-
 new.df.gnidr$logDeathRate <- NA
 new.df.gnidr$logDeathRate[new.df.gnidr$zeroDeath == 0] <- 
   log(new.df.gnidr$death.rate[new.df.gnidr$zeroDeath == 0])
@@ -425,7 +437,7 @@ baseSet$expPop <- baseSet$pop.exposed.local.else.adm1.else.national.100yr
 baseSet$spline_year <- bSpline(baseSet$Year, df = 3)
 
 baseSet$gnipc.scale <- (baseSet$gnipc - mean(baseSet$gnipc, na.rm = TRUE)) / 
-                          sd(baseSet$gnipc, na.rm = TRUE)
+  sd(baseSet$gnipc, na.rm = TRUE)
 
 baseKeepVars <- c("total.deaths.na.as.0", 
                   "spline_year", 
@@ -449,9 +461,9 @@ names(baseKeep) <- c("total_deaths_na_as_0",
                      "Country_Code", "DisNo_nocoun", "expPop")
 
 predMod <- glmmTMB(total_deaths_na_as_0 ~
-                        offset(log(expPop)) + log(pop_total_adm0) +
-                      + spline_year + hdi + declare + no_events_5_years + Disaster.Subtype + 
-                      + (1 | Country_Code), data = baseKeep, family = "nbinom2")
+                     offset(log(expPop)) + log(pop_total_adm0) +
+                     + spline_year + hdi + declare + no_events_5_years + Disaster.Subtype + 
+                     + (1 | Country_Code), data = baseKeep, family = "nbinom2")
 
 # GET AVERAGE COUNTRY DEATH RATE
 
@@ -467,7 +479,7 @@ trendData$DisNo_nocoun <- factor(gsub("[A-Za-z]", "", trendData$DisNo.))
 trendData$Country_Code <- factor(trendData$SLIIDERS.country.code.flat)
 
 trendData$gnipc.scale <- (trendData$gnipc - mean(trendData$gnipc, na.rm = TRUE)) / 
-                            sd(trendData$gnipc, na.rm = TRUE)
+  sd(trendData$gnipc, na.rm = TRUE)
 
 countryDeaths <- NULL
 
@@ -489,15 +501,14 @@ for (i in 1:length(unique(trendData$Country_Code))) {
 
 countryDeaths <- countryDeaths[order(countryDeaths$yearlyDeathRate), ]
 
-setwd("/Users/bcbrewer/Documents/Projects (Holding)/FloodDeathRate/Software_Output")
+setwd("./Output")
 
-write.csv(countryDeaths, "countryYearlyDeaths_1990.csv", row.names = FALSE)
-# write.csv(countryDeaths, "countryYearlyDeaths_2000.csv", row.names = FALSE)
+write.csv(countryDeaths, paste("countryYearlyDeaths_", YEAR_THRESHOLD, ".csv", sep = ""), 
+          row.names = FALSE)
 
 # GET CIs FOR COUNTRY-LEVEL DEATHS (1990-2024)
 
 countryDeathCIs <- NULL
-B <- 250
 
 set.seed(256)
 
@@ -505,98 +516,88 @@ for (i in 1:length(unique(trendData$Country_Code))) {
   
   current <- trendData[trendData$Country_Code == unique(trendData$Country_Code)[i], ]
   
-  # if (current$Country_Code[1] %in% c("PHL", "CHN", "MEX", "VNM", "JPN", "USA", "IND", "TWN", "MDG", "BGD",
-  #                                    "CUB", "HTI", "KOR", "DOM", "THA", "AUS", "FJI", "FRA", "HND", "MOZ")) {
-    
-    cat("\014")
-    print(paste("ITERATION", i, "OF", length(unique(trendData$Country_Code)),
-                "(1990-2024)"))
+  cat("\014")
+  print(paste("ITERATION", i, "OF", length(unique(trendData$Country_Code)),
+              "(1990-2024)"))
   
-    current <- current[, names(current) %in% c("total_deaths_na_as_0",
-                                               "expPop",
-                                               "pop_total_adm0",
-                                               "spline_year",
-                                               "hdi",
-                                               "declare",
-                                               "no_events_5_years",
-                                               "Disaster.Subtype",
-                                               "Country_Code")]
+  current <- current[, names(current) %in% c("total_deaths_na_as_0",
+                                             "expPop",
+                                             "pop_total_adm0",
+                                             "spline_year",
+                                             "hdi",
+                                             "declare",
+                                             "no_events_5_years",
+                                             "Disaster.Subtype",
+                                             "Country_Code")]
+  
+  newRow <- data.frame(Country_Code = current$Country_Code[1],
+                       nEvents = NA,
+                       meanDeaths = NA,
+                       meanLogDeaths = NA,
+                       meanRate = NA,
+                       mdsd = NA,
+                       mldsd = NA,
+                       mrsd = NA,
+                       md_lcl = NA,
+                       md_ucl = NA,
+                       mld_lcl = NA,
+                       mld_ucl = NA,
+                       mr_lcl = NA,
+                       mr_ucl = NA)
+  
+  thisPred <- predict(predMod, newdata = current, type = "response")
+  
+  thisPred <- thisPred[!is.na(thisPred)]
+  
+  newRow$meanRate <- mean(thisPred / current$expPop)
+  newRow$meanDeaths <- mean(thisPred)
+  newRow$meanLogDeaths <- mean(log(thisPred))
+  newRow$nEvents <- length(thisPred)
+  
+  if (nrow(current) > 1) {
     
-    newRow <- data.frame(Country_Code = current$Country_Code[1],
-                         nEvents = NA,
-                         meanDeaths = NA,
-                         meanLogDeaths = NA,
-                         meanRate = NA,
-                         mdsd = NA,
-                         mldsd = NA,
-                         mrsd = NA,
-                         md_lcl = NA,
-                         md_ucl = NA,
-                         mld_lcl = NA,
-                         mld_ucl = NA,
-                         mr_lcl = NA,
-                         mr_ucl = NA)
+    preds <- NULL
+    logPreds <- NULL
+    rates <- NULL
     
-    thisPred <- predict(predMod, newdata = current, type = "response")
-    
-    thisPred <- thisPred[!is.na(thisPred)]
-    
-    newRow$meanRate <- mean(thisPred / current$expPop)
-    newRow$meanDeaths <- mean(thisPred)
-    newRow$meanLogDeaths <- mean(log(thisPred))
-    newRow$nEvents <- length(thisPred)
-    
-    if (nrow(current) > 1) {
+    for (b in 1:B) {
       
-      preds <- NULL
-      logPreds <- NULL
-      rates <- NULL
-      
-      for (b in 1:B) {
-        
-        if (b %% 10 == 0) {
-          cat("\014")
-          print(paste("ITERATION", i, "OF", length(unique(trendData$Country_Code)),
-                      "(1990-2024)"))
-          print(paste("BOOT", b, "OF", B))
-        }
-        
-        bootSamp <- current[sample(1:nrow(current), replace = TRUE), ]
-        bootPred <- predict(predMod, newdata = bootSamp, type = "response")
-        preds <- c(preds, mean(bootPred, na.rm = TRUE))
-        logPreds <- c(logPreds, mean(log(bootPred), na.rm = TRUE))
-        rates <- c(rates, mean(bootPred/bootSamp$expPop, na.rm = TRUE))
+      if (b %% 10 == 0) {
+        cat("\014")
+        print(paste("ITERATION", i, "OF", length(unique(trendData$Country_Code)),
+                    "(1990-2024)"))
+        print(paste("BOOT", b, "OF", B))
       }
       
-      newRow$mdsd <- sd(preds)
-      newRow$md_lcl <- newRow$meanDeaths - qnorm(0.975)*newRow$mdsd
-      newRow$md_ucl <- newRow$meanDeaths + qnorm(0.975)*newRow$mdsd
-      
-      newRow$mldsd <- sd(logPreds)
-      newRow$mld_lcl <- newRow$meanLogDeaths - qnorm(0.975)*newRow$mldsd
-      newRow$mld_ucl <- newRow$meanLogDeaths + qnorm(0.975)*newRow$mldsd
-      
-      newRow$mrsd <- sd(rates)
-      newRow$mr_lcl <- newRow$meanRate - qnorm(0.975)*newRow$mrsd
-      newRow$mr_ucl <- newRow$meanRate + qnorm(0.975)*newRow$mrsd
+      bootSamp <- current[sample(1:nrow(current), replace = TRUE), ]
+      bootPred <- predict(predMod, newdata = bootSamp, type = "response")
+      preds <- c(preds, mean(bootPred, na.rm = TRUE))
+      logPreds <- c(logPreds, mean(log(bootPred), na.rm = TRUE))
+      rates <- c(rates, mean(bootPred/bootSamp$expPop, na.rm = TRUE))
     }
     
-    countryDeathCIs <- rbind(countryDeathCIs, newRow)
+    newRow$mdsd <- sd(preds)
+    newRow$md_lcl <- newRow$meanDeaths - qnorm(0.975)*newRow$mdsd
+    newRow$md_ucl <- newRow$meanDeaths + qnorm(0.975)*newRow$mdsd
+    
+    newRow$mldsd <- sd(logPreds)
+    newRow$mld_lcl <- newRow$meanLogDeaths - qnorm(0.975)*newRow$mldsd
+    newRow$mld_ucl <- newRow$meanLogDeaths + qnorm(0.975)*newRow$mldsd
+    
+    newRow$mrsd <- sd(rates)
+    newRow$mr_lcl <- newRow$meanRate - qnorm(0.975)*newRow$mrsd
+    newRow$mr_ucl <- newRow$meanRate + qnorm(0.975)*newRow$mrsd
+  }
   
-  # }
+  countryDeathCIs <- rbind(countryDeathCIs, newRow)
   
 }
 
-beep(8)
-
 write.csv(countryDeathCIs, "CountryDeathCIs.csv", row.names = FALSE)
-# write.csv(countryDeathCIs, "CountryDeathCIs_top20.csv", row.names = FALSE)
 
 # GET CIs FOR COUNTRY-LEVEL DEATHS (2050)
 
 trendData2050 <- trendData
-
-B <- 1000
 
 predKeepNames <- names(trendData2050)[grepl("pop.exposed.local.else.adm1.else.national", names(trendData2050))]
 predKeepNames <- predKeepNames[grepl(".100yr", predKeepNames)]
@@ -619,7 +620,6 @@ trendData2050 <- trendData2050[, names(trendData2050) %in% keepVars]
 trendData2050 <- trendData2050[, c(1:2, 6:11, 3:5)]
 
 countryDeathCIs50 <- NULL
-# ci_base <- read.csv("CountryDeathCIs_top20.csv")
 ci_base <- read.csv("CountryDeathCIs.csv")
 
 set.seed(256)
@@ -635,9 +635,6 @@ for (i in 1:length(unique(trendData2050$Country_Code))) {
     current <- trendData2050[trendData2050$Country_Code == unique(trendData2050$Country_Code)[i], 
                              c(1:8, j)]
     names(current)[9] <- "expPop"
-    
-    # if (current$Country_Code[1] %in% c("PHL", "CHN", "MEX", "VNM", "JPN", "USA", "IND", "TWN", "MDG", "BGD",
-    #                                    "CUB", "HTI", "KOR", "DOM", "AUS", "THA", "FJI", "FRA", "HND", "MOZ")) {
     
     newRow <- data.frame(Country_Code = current$Country_Code[1],
                          nEvents = NA,
@@ -673,19 +670,7 @@ for (i in 1:length(unique(trendData2050$Country_Code))) {
       print(paste("MODEL", j-8, "OF", length(9:11)))
       
       for (b in 1:B) {
-        
-        # if (b %% 10 == 0) {
-        #   cat("\014")
-        #   print(paste("ITERATION", i, "OF", length(unique(trendData2050$Country_Code))))
-        #   print(paste("MODEL", j-8, "OF", length(9:15)))
-        #   print(paste("BOOT", b, "OF", B))
-        # }
-        
         dataList[[b]] <- current[sample(1:nrow(current), replace = TRUE), ]
-        
-        # bootSamp <- current[sample(1:nrow(current), replace = TRUE), ]
-        # bootPred <- predict(predMod, newdata = bootSamp, type = "response")
-        # preds <- c(preds, mean(bootPred, na.rm = TRUE))
       }
       
       preds <- lapply(dataList, function(x){mean(predict(predMod, 
@@ -706,8 +691,6 @@ for (i in 1:length(unique(trendData2050$Country_Code))) {
     
     countryDeathCIs50 <- rbind(countryDeathCIs50, newRow)
     
-    # }
-    
   }
   
   # write.csv(countryDeathCIs50, "CountryDeathCIs50_top20.csv", row.names = FALSE)
@@ -715,7 +698,6 @@ for (i in 1:length(unique(trendData2050$Country_Code))) {
   
 }
 
-# write.csv(countryDeathCIs50, "CountryDeathCIs50_top20.csv", row.names = FALSE)
 write.csv(countryDeathCIs50, "CountryDeathCIs50.csv", row.names = FALSE)
 
 # GET CIs FOR COUNTRY-LEVEL DEATHS (2100)
@@ -743,7 +725,6 @@ trendData2100 <- trendData2100[, names(trendData2100) %in% keepVars]
 trendData2100 <- trendData2100[, c(1:2, 6:11, 3:5)]
 
 countryDeathCIs100 <- NULL
-# ci_base <- read.csv("CountryDeathCIs_top20.csv")
 ci_base <- read.csv("CountryDeathCIs.csv")
 
 set.seed(256)
@@ -760,92 +741,73 @@ for (i in 1:length(unique(trendData2100$Country_Code))) {
                              c(1:8, j)]
     names(current)[9] <- "expPop"
     
-    # if (current$Country_Code[1] %in% c("PHL", "CHN", "MEX", "VNM", "JPN", "USA", "IND", "TWN", "MDG", "BGD",
-    #                                    "CUB", "HTI", "KOR", "DOM", "THA", "AUS", "FJI", "FRA", "HND", "MOZ")) {
+    newRow <- data.frame(Country_Code = current$Country_Code[1],
+                         nEvents = NA,
+                         model = substr(names(trendData2100)[j], 1, 23),
+                         meanDeaths = NA,
+                         mdsd = NA,
+                         lcl = NA,
+                         ucl = NA,
+                         pctInc = NA,
+                         pctsd = NA,
+                         pctlcl = NA,
+                         pctucl = NA)
+    
+    thisPred <- predict(predMod, newdata = current, type = "response")
+    
+    thisPred <- thisPred[!is.na(thisPred)]
+    
+    curBase <- ci_base[ci_base$Country_Code == unique(current$Country_Code)[1], ]
+    
+    newRow$meanDeaths <- mean(thisPred)
+    newRow$pctInc <- 100*(newRow$meanDeaths - curBase$meanDeaths) / curBase$meanDeaths
+    newRow$nEvents <- length(thisPred)
+    
+    if (nrow(current) > 1) {
       
-      newRow <- data.frame(Country_Code = current$Country_Code[1],
-                           nEvents = NA,
-                           model = substr(names(trendData2100)[j], 1, 23),
-                           meanDeaths = NA,
-                           mdsd = NA,
-                           lcl = NA,
-                           ucl = NA,
-                           pctInc = NA,
-                           pctsd = NA,
-                           pctlcl = NA,
-                           pctucl = NA)
+      preds <- NULL
+      pcts <- NULL
+      dataList <- NULL
       
-      thisPred <- predict(predMod, newdata = current, type = "response")
+      cat("\014")
+      print(paste("ITERATION", i, "OF", length(unique(trendData2100$Country_Code)),
+                  "(2100)"))
+      print(paste("MODEL", j-8, "OF", length(9:11)))
       
-      thisPred <- thisPred[!is.na(thisPred)]
-      
-      curBase <- ci_base[ci_base$Country_Code == unique(current$Country_Code)[1], ]
-      
-      newRow$meanDeaths <- mean(thisPred)
-      newRow$pctInc <- 100*(newRow$meanDeaths - curBase$meanDeaths) / curBase$meanDeaths
-      newRow$nEvents <- length(thisPred)
-      
-      if (nrow(current) > 1) {
-        
-        preds <- NULL
-        pcts <- NULL
-        dataList <- NULL
-        
-        cat("\014")
-        print(paste("ITERATION", i, "OF", length(unique(trendData2100$Country_Code)),
-                    "(2100)"))
-        print(paste("MODEL", j-8, "OF", length(9:11)))
-        
-        for (b in 1:B) {
-          
-          # if (b %% 10 == 0) {
-          #   cat("\014")
-          #   print(paste("ITERATION", i, "OF", length(unique(trendData2100$Country_Code))))
-          #   print(paste("MODEL", j-8, "OF", length(9:15)))
-          #   print(paste("BOOT", b, "OF", B))
-          # }
-          
-          dataList[[b]] <- current[sample(1:nrow(current), replace = TRUE), ]
-          
-          # bootSamp <- current[sample(1:nrow(current), replace = TRUE), ]
-          # bootPred <- predict(predMod, newdata = bootSamp, type = "response")
-          # preds <- c(preds, mean(bootPred, na.rm = TRUE))
-        }
-        
-        preds <- lapply(dataList, function(x){mean(predict(predMod, 
-                                                           newdata = x,
-                                                           type = "response"))})
-        
-        pcts <- 100 * (curBase$meanDeaths - unlist(preds))/curBase$meanDeaths
-        
-        newRow$mdsd <- sd(unlist(preds))
-        newRow$lcl <- newRow$meanDeaths - qnorm(0.975)*newRow$mdsd
-        newRow$ucl <- newRow$meanDeaths + qnorm(0.975)*newRow$mdsd
-        
-        newRow$pctsd <- sd(pcts)
-        newRow$pctlcl <- newRow$pctInc - qnorm(0.975)*newRow$pctsd
-        newRow$pctucl <- newRow$pctInc + qnorm(0.975)*newRow$pctsd
-        
+      for (b in 1:B) {
+        dataList[[b]] <- current[sample(1:nrow(current), replace = TRUE), ]
       }
       
-      countryDeathCIs100 <- rbind(countryDeathCIs100, newRow)
+      preds <- lapply(dataList, function(x){mean(predict(predMod, 
+                                                         newdata = x,
+                                                         type = "response"))})
       
-    # }
+      pcts <- 100 * (curBase$meanDeaths - unlist(preds))/curBase$meanDeaths
+      
+      newRow$mdsd <- sd(unlist(preds))
+      newRow$lcl <- newRow$meanDeaths - qnorm(0.975)*newRow$mdsd
+      newRow$ucl <- newRow$meanDeaths + qnorm(0.975)*newRow$mdsd
+      
+      newRow$pctsd <- sd(pcts)
+      newRow$pctlcl <- newRow$pctInc - qnorm(0.975)*newRow$pctsd
+      newRow$pctucl <- newRow$pctInc + qnorm(0.975)*newRow$pctsd
+      
+    }
+    
+    countryDeathCIs100 <- rbind(countryDeathCIs100, newRow)
     
   }
   
-  # write.csv(countryDeathCIs100, "CountryDeathCIs100_top20.csv", row.names = FALSE)
   write.csv(countryDeathCIs100, "CountryDeathCIs100.csv", row.names = FALSE)
   
 }
 
-# write.csv(countryDeathCIs100, "CountryDeathCIs100_top20.csv", row.names = FALSE)
 write.csv(countryDeathCIs100, "CountryDeathCIs100.csv", row.names = FALSE)
 
 # BACK TO PREDICTION
 
-setwd("/Users/bcbrewer/Documents/Projects (Holding)/FloodDeathRate/Data/Raw")
-predData <- read_excel("7b output 5.xlsx")
+setwd("../../Step07")
+predData <- read_excel("7 output - EMDAT events with exposed pops.xlsx")
 predData <- predData[predData$gni.group != "", ]
 
 predData$death.rate <- predData$total.deaths.na.as.0 / 
@@ -887,12 +849,10 @@ predKeepNames <- names(predData)[grepl("pop.exposed.local.else.adm1.else.nationa
 predKeepNames <- predKeepNames[grepl(".100yr", predKeepNames)]
 predKeepNames <- predKeepNames[!grepl("pooled", predKeepNames)]
 predKeepNames <- predKeepNames[grepl(".17", predKeepNames) |
-                               grepl(".50", predKeepNames) |
-                               grepl(".83", predKeepNames)]
+                                 grepl(".50", predKeepNames) |
+                                 grepl(".83", predKeepNames)]
 predKeepNames <- predKeepNames[!grepl("popscale", predKeepNames)]
 predKeepNames <- predKeepNames[substr(predKeepNames, 1, 3) == "AR6"]
-# predKeepNames <- c(predKeepNames,
-#                    "NCC_AR6.pop.exposed.local.else.adm1.else.national.100yr")
 
 keepVars <- c("total.deaths.na.as.0", 
               "spline_year", 
@@ -906,15 +866,6 @@ keepVars <- c("total.deaths.na.as.0",
               predKeepNames)
 
 predKeep <- predData[, names(predData) %in% keepVars]
-
-# settings <- c("low_SSP1.26",
-#               "low_SSP5.85",
-#               "med_SSP1.19",
-#               "med_SSP1.26",
-#               "med_SSP2.45",
-#               "med_SSP3.70",
-#               "med_SSP5.85",
-#               "NCC")
 
 settings <- c("low_SSP1.26",
               "low_SSP5.85",
@@ -981,13 +932,12 @@ for (i in 1:length(settings)) {
       } else {
         centerLoopVars <- innerLoopVars
       }
-
+      
       thisPerc <- thisYear[, names(thisYear) %in% centerLoopVars]
       expVar <- which(grepl("pop.exposed", names(thisPerc)))
       names(thisPerc)[expVar] <- "expPop"
       
       feedIn <- baseKeep
-      # feedIn <- feedIn[!(feedIn$total_deaths_na_as_0 == 2182 & feedIn$Country_Code == "PNG"), ]
       
       feedIn$expPop <- thisPerc$expPop
       
@@ -1035,8 +985,7 @@ for (i in 1:length(unique(countryKeep$Country_Code))) {
   }
   
   current <- countryKeep[countryKeep$Country_Code == unique(countryKeep$Country_Code)[i], ]
-  
-  # Need to make these (expPop will differ for each):
+
   cur17 <- current[, c(-4, -5)]
   cur50 <- current[, c(-3, -5)]
   cur83 <- current[, c(-3, -4)]
@@ -1072,7 +1021,7 @@ for (i in 1:length(unique(countryKeep$Country_Code))) {
   
 }
 
-setwd("/Users/bcbrewer/Documents/Projects (Holding)/FloodDeathRate/Software_Output")
+setwd("../Step10/Output")
 write.csv(countryRes17, "meanDeathRate17.csv", row.names = FALSE)
 write.csv(countryRes50, "meanDeathRate50.csv", row.names = FALSE)
 write.csv(countryRes83, "meanDeathRate83.csv", row.names = FALSE)
@@ -1080,7 +1029,7 @@ write.csv(countryRes83, "meanDeathRate83.csv", row.names = FALSE)
 # NOW GET 1990-2024 (MEAN)
 
 obsFinal <- NULL
-BOOT <- 250
+BOOT <- B
 
 set.seed(256)
 
@@ -1096,8 +1045,7 @@ for (i in 1:length(unique(df.gni$Year))) {
   names(current)[names(current) == "no.events.5.years"] <- "no_events_5_years"
   names(current)[names(current) == "pop.total.adm0"] <- "pop_total_adm0"
   
-  # meanPred <- mean(predict(predMod, newdata = current, type = "response")/current$expPop)
-  meanPred <- mean(predict(predMod, newdata = current, type = "response"))
+  meanPred <- mean(predict(predMod, newdata = current, type = "response")/current$expPop)
   
   bootRes <- NULL
   
@@ -1110,8 +1058,7 @@ for (i in 1:length(unique(df.gni$Year))) {
     }
     
     thisSamp <- current[sample(1:nrow(current), replace = TRUE), ]
-    # bootRes[j] <- mean(predict(predMod, newdata = thisSamp, type = "response")/current$expPop)
-    bootRes[j] <- mean(predict(predMod, newdata = thisSamp, type = "response"))
+    bootRes[j] <- mean(predict(predMod, newdata = thisSamp, type = "response")/current$expPop)
     
   }
   
@@ -1135,79 +1082,30 @@ final$year <- as.numeric(final$year) - 1990
 
 plotData <- rbind(obsFinal, final)
 
-# NOW GET 1990-2024 (TOTAL)
-
-# totFinal <- NULL
-# BOOT <- 250
-# 
-# set.seed(256)
-# 
-# for (i in 1:length(unique(df.gni$Year))) {
-#   
-#   cat("\014")
-#   print(paste("ITERATION", i, "OF", length(unique(df.gni$Year))))
-#   
-#   current <- predData[predData$Year == unique(predData$Year)[i], ]
-#   current <- current[!is.na(current$gnipc.scale), ]
-#   
-#   current$expPop <- current$pop.exposed.local.else.adm1.else.national.100yr
-#   names(current)[names(current) == "no.events.5.years"] <- "no_events_5_years"
-#   names(current)[names(current) == "pop.total.adm0"] <- "pop_total_adm0"
-#   
-#   totPred <- sum(predict(predMod, newdata = current, type = "response"))
-#   
-#   bootRes <- NULL
-#   
-#   for (j in 1:BOOT) {
-#     
-#     if (j %% 10 == 0) {
-#       cat("\014")
-#       print(paste("ITERATION", i, "OF", length(unique(df.gni$Year))))
-#       print(paste("BOOTSTRAP", j, "OF", BOOT))
-#     }
-#     
-#     thisSamp <- current[sample(1:nrow(current), replace = TRUE), ]
-#     bootRes[j] <- sum(predict(predMod, newdata = thisSamp, type = "response"))
-#     
-#   }
-#   
-#   totFinal <- rbind(totFinal, 
-#                     data.frame(model = "observed",
-#                                year = current$Year[i],
-#                                perc = 17,
-#                                est = totPred - qnorm(0.83)*sd(bootRes)),
-#                     data.frame(model = "observed",
-#                                year = current$Year[i],
-#                                perc = "PE",
-#                                est = totPred),
-#                     data.frame(model = "observed",
-#                                year = current$Year[i],
-#                                perc = 83,
-#                                est = totPred + qnorm(0.83)*sd(bootRes)))
-#   
-# }
-
 # SAVE RESULTS
 
-setwd("/Users/bcbrewer/Documents/Projects (Holding)/FloodDeathRate/Data/Derived")
-
 saveRDS(predMod, "predMod_HDI.RDS")
-# saveRDS(fit.NAzero, "fit.NAzero_HDI.RDS")
 saveRDS(predData, "predData.RDS")
 
 saveRDS(final, "final_HDI.RDS")
-# saveRDS(obsFinal, "obsFinal_HDI.RDS")
+saveRDS(obsFinal, "obsFinal_HDI.RDS")
 saveRDS(plotData, "plotData_HDI.RDS")
 
 saveRDS(countryRes50, "meanDeathRate_HDI.RDS")
-# saveRDS(totFinal, "totFinal_HDI.RDS")
 
-# QUICK LOAD
+setwd("..")
 
-setwd("/Users/bcbrewer/Documents/Projects (Holding)/FloodDeathRate/Data/Derived")
+# QUICK LOAD ======================================================================================
+
+# NOTE - If script has already been run once and the above .RDS files have been
+# created, one can start from here to proceed with plot generation.
+
+# If starting from here, the current working directory will still need to be the
+# Step10 folder.
+
+setwd("./Output")
 
 predMod <- readRDS("predMod_HDI.RDS")
-# fit.NAzero <- readRDS("fit.NAzero_HDI.RDS")
 predData <- readRDS("predData.RDS")
 
 final <- readRDS("final_HDI.RDS")
@@ -1215,7 +1113,6 @@ obsFinal <- readRDS("obsFinal_HDI.RDS")
 plotData <- readRDS("plotData_HDI.RDS")
 
 meanDeathRate <- readRDS("meanDeathRate_HDI.RDS")
-# totFinal <- readRDS("totFinal_HDI.RDS")
 
 settings <- c("low_SSP1.26",
               "low_SSP5.85",
@@ -1238,7 +1135,7 @@ smoothed17 <- predict(loess17)
 loessPE <- loess(linePE$est ~ linePE$year, span = SPAN)
 smoothedPE <- predict(loessPE)
 
-loess83 <- loess(line83$est[line83$est < 1] ~ line83$year[line83$est < 1], span = SPAN83)
+loess83 <- loess(line83$est ~ line83$year, span = SPAN83)
 smoothed83 <- predict(loess83)
 
 par(mfrow = c(1, 2))
@@ -1249,9 +1146,6 @@ plot(linePE$year, linePE$est,
 
 axis(1, at = seq(0, 32, 5),
      labels = c(1990, 1995, 2000, 2005, 2010, 2015, 2020))
-
-# lines(linePE$year, smoothedPE)
-# lines(line83$year, smoothed83, lty = 3)
 
 model60 <- plotData[plotData$model != "observed" & plotData$year == 60, ]
 model110 <- plotData[plotData$model != "observed" & plotData$year == 110, ]
@@ -1264,11 +1158,6 @@ plot(-5, -5, xlim = c(35, 130), ylim = c(0, 200),
 text(60, 15, "Projections for 2050", font = 2)
 text(110, 15, "Projections for 2100", font = 2)
 
-# lines(c(36.25, 125), c(plotData$est[plotData$model == "NCC"][1],
-#                     plotData$est[plotData$model == "NCC"][1]),
-#       lty = 2, lwd = 1)
-# text(39.5, 77, "NCC")
-
 predData <- predData[!is.na(predData$gnipc.scale), ]
 
 predData$expPop <- predData$pop.exposed.local.else.adm1.else.national.100yr
@@ -1276,9 +1165,6 @@ names(predData)[names(predData) == "no.events.5.years"] <- "no_events_5_years"
 names(predData)[names(predData) == "pop.total.adm0"] <- "pop_total_adm0"
 
 aggDeath <- mean(predict(predMod, predData, type = "response"))
-
-# lines(c(36.25, 125), c(mean(aggDeath), mean(aggDeath)), lty = 2, lwd = 1)
-# text(109.5, 57, "1990-2022 Aggregate")
 
 model60$pctChg <- 100*(model60$est - aggDeath) / aggDeath
 model110$pctChg <- 100*(model110$est - aggDeath) / aggDeath
@@ -1303,48 +1189,9 @@ lines(c(37.5, 127.5), c(50, 50), lty = 3)
 lines(c(37.5, 127.5), c(100, 100), lty = 3)
 lines(c(37.5, 127.5), c(150, 150), lty = 3)
 
-# legend("topleft", inset=.02, title="Model",
-#        settings, fill=c(colorList, "black"),
-#        horiz=FALSE, cex=0.8, ncol = 2)
-
 par(mfrow = c(1, 1))
 
-# GET PLOT OF TOTAL DEATHS
-
-# line17 <- totFinal[totFinal$model == "observed" & totFinal$perc == 17, ]
-# linePE <- totFinal[totFinal$model == "observed" & totFinal$perc == "PE", ]
-# line83 <- totFinal[totFinal$model == "observed" & totFinal$perc == 83, ]
-# 
-# SPAN <- 0.25
-# 
-# par(mfrow = c(1, 2))
-# 
-# loess17 <- loess(line17$est ~ line17$year, span = SPAN)
-# smoothed17 <- predict(loess17) 
-# 
-# loessPE <- loess(linePE$est ~ linePE$year, span = SPAN)
-# smoothedPE <- predict(loessPE)
-# 
-# loess83 <- loess(line83$est ~ line83$year, span = SPAN)
-# smoothed83 <- predict(loess83)
-# 
-# plot(line17$year, smoothed17, 
-#      ylim = c(0, 14000), xlim = c(0, 32), type = 'l', lty = 3,
-#      xlab = "Year", ylab = "Total Yearly Deaths", xaxt = 'n')
-# 
-# axis(1, at = seq(0, 32, 5),
-#      labels = c(1990, 1995, 2000, 2005, 2010, 2015, 2020))
-# 
-# lines(linePE$year, smoothedPE)
-# lines(line83$year, smoothed83, lty = 3)
-
 # MAKE FIGURE
-
-setwd("/Users/bcbrewer/Documents/Projects (Holding)/FloodDeathRate/Software_Output")
-
-# ci_base <- read.csv("CountryDeathCIs_top20.csv")
-# ci_50 <- read.csv("CountryDeathCIs50_top20.csv")
-# ci_100 <- read.csv("CountryDeathCIs100_top20.csv")
 
 ci_base <- read.csv("CountryDeathCIs.csv")
 ci_50 <- read.csv("CountryDeathCIs50.csv")
@@ -1353,12 +1200,8 @@ ci_100 <- read.csv("CountryDeathCIs100.csv")
 EVENT_THRESHOLD <- 50
 
 keep_base <- ci_base[ci_base$nEvents >= EVENT_THRESHOLD, ]
-
 keep_50 <- ci_50[ci_50$nEvents >= EVENT_THRESHOLD, ]
-# keep_50 <- keep_50[keep_50$model == "AR6_med_SSP2.45", ]
-
 keep_100 <- ci_100[ci_100$nEvents >= EVENT_THRESHOLD, ]
-# keep_100 <- keep_100[keep_100$model == "AR6_med_SSP2.45", ]
 
 par(mfrow = c(2, 2))
 
@@ -1391,7 +1234,7 @@ plot(-5, -5,
 axis(1, at = 1:nrow(keep_base), labels = keep_base$Country_Code)
 
 for (i in 1:nrow(keep_base)) {
-
+  
   if (keep_base$Country_Code[i] == "BGD") {
     lines(c(i, i), c(max(0, keep_base$md_lcl[i]), 
                      keep_base$meanDeaths[i]))
@@ -1405,7 +1248,7 @@ for (i in 1:nrow(keep_base)) {
     lines(c(i-0.1, i+0.1), c(max(0, keep_base$md_lcl[i]), max(0, keep_base$md_lcl[i])))
     lines(c(i-0.1, i+0.1), c(keep_base$md_ucl[i], keep_base$md_ucl[i]))
   }
-
+  
   points(i, keep_base$meanDeaths[i], pch = 21, col = "black", bg = "#1496E1")
 }
 
