@@ -2,6 +2,6 @@
 
 This repository accompanies the following manuscript:
 
-### **A Historical Coastal Flood Mortality Risk Model and Projected Changes under Sea Level Rise Scenarios**  
+### **A Coastal Flood Mortality Risk Model with Projected Changes under Sea Level Rise**  
 Ryan S.D. Calder, Saurav Timilsina, Ben Brewer,  Benjamin Zaitchik, Samarth Swarup, Julia M. Gohlke  
 *In Review*
