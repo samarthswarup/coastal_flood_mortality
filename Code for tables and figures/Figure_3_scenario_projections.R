@@ -1,28 +1,14 @@
-##########################################
-# Figure 3 - Scenario projections         #
-#                                         #
-# 2026-07-14                              #
-# Ryan Calder                             #
-# Notes added by Claude                   #
-##########################################
-
-# Freestanding figure script, built directly on Step 9's final output --
-# not a relocation of any plotting code from 8_ModelFitting_and_SLR_projections.R, since
-# Step 9's six-row population/HDI/coastal-growth decomposition and
-# decoupled BOUND_worst/BOUND_best bounding scenarios have no equivalent
-# in that script's plotting logic. 9_HDI_pop_time_varying_projections.R itself contains no
-# plotting code at all -- it only writes decomp_table/country_master as
-# CSVs.
+# Figure 3: Global mortality projections by scenario and methodological stage
 #
-# Draws exclusively on decomp_table as saved by Step 9
-# (Intermediate outputs/Output from Step 9/decomposition_table_population_methodology_<date>.csv) --
-# no re-derivation of projected deaths, CIs, or the historical baseline.
-# The only new calculation here is converting the already-final
-# Ann_deaths_lcl/Ann_deaths_ucl (absolute counts) into the same
-# percent-vs-historical units as Pct_vs_historical, using the historical
-# baseline value already present in decomp_table's own
-# "Historical baseline" rows -- i.e., simple arithmetic on final columns,
-# not a recalculation.
+# Script dependencies:
+#   - Step 9: decomposition_table_population_methodology_<date>.csv
+# R packages: dplyr, ggplot2, RColorBrewer, scales
+# Outputs:
+#   - Output/Plots/Fig 3 <date>.pdf
+# Computation:
+#   - Plots percentage changes in projected annual deaths relative to the historical baseline; transforms saved annual-death confidence bounds into percentage units.
+#
+# Execute from the project analysis directory containing Intermediate outputs/.
 
 rm(list = ls())
 
@@ -33,38 +19,24 @@ library(ggplot2)
 library(scales)
 library(RColorBrewer)
 
-# EDIT THIS to the absolute path of your local copy of the project root (the
-# folder that contains this script plus "Inputs/", "Intermediate outputs/",
-# and "Output/"). This is the ONLY machine-specific line in this script.
-setwd("~/coastal_flood_mortality")
+project_dir <- getwd()
+if (!dir.exists(file.path(project_dir, "Intermediate outputs")) &&
+    dir.exists(file.path(project_dir, "Claude", "Intermediate outputs"))) {
+  project_dir <- file.path(project_dir, "Claude")
+}
+if (!dir.exists(file.path(project_dir, "Intermediate outputs"))) {
+  stop("Run this script from the directory containing Intermediate outputs/.")
+}
+setwd(project_dir)
 
 dir.create("Output/Plots", showWarnings = FALSE, recursive = TRUE)
 
-# Date suffix identifying which Step 9 run to pull decomp_table from
-step9_date_append_output <- "2026-07-20"
+step9_date_append_output <- "2026-11-14"
 
-# Date suffix for files written by this script
 date_append_output <- format(Sys.Date(), "%Y-%m-%d")
 
-# =============================================================================
-# USER CONFIGURATION: choose which scenarios appear in Figure 3
-# =============================================================================
-# Valid scenario labels (must match the `SSP` column in decomp_table, which
-# in turn comes from Step 9's `ssp_pairings` list):
-#
-#   Core SSP-consistent (AR6_med SLR):
-#     "SSP1.19", "SSP1.26_med", "SSP2.45", "SSP3.70", "SSP5.85_med"
-#
-#   AR6_low SLR sensitivity variants (same SSP, lower-confidence SLR):
-#     "SSP1.26_low", "SSP5.85_low", "BOUND_worst_low"
-#
-#   Decoupled bounding scenarios (forcing and population/HDI deliberately
-#   mismatched -- NOT standard SSP-RCP pairings):
-#     "BOUND_worst", "BOUND_best"
-#
-# Edit this vector to control what appears in the figure. Order given here
-# is the order scenarios will appear on the x-axis.
 
+# Select scenarios and stage comparisons.
 scenarios_to_plot <- c(
   "SSP1.19",
   "SSP1.26_med",
@@ -75,21 +47,6 @@ scenarios_to_plot <- c(
   "BOUND_best"
 )
 
-# Which two decomposition stages to compare, top row vs. bottom row. Must
-# match values in decomp_table's `Scenario` column. Full list of valid
-# stages, in pipeline order:
-#   " SLR only"
-#   " + Population (exposure only)"
-#   " + Population (exposure + NB covariate)"
-#   " + Population (both) & HDI"
-#   " + Population (both) & HDI & coastal growth 1"   [Rentschler multiplier]
-#   " + Population (both) & HDI & coastal growth 2"   [Tellman multiplier]
-#
-# Default: top row = SLR + population exposure only, with no
-# population-level mortality response (i.e. no NB population covariate,
-# HDI, or coastal growth yet); bottom row = fully decomposed estimate
-# (+ NB covariate + HDI + coastal growth). Edit these two to compare any
-# other pair of stages.
 
 stage_top    <- " + Population (exposure only)"
 stage_bottom <- " + Population (both) & HDI & coastal growth 2"
@@ -98,26 +55,20 @@ stage_labels <- c("SLR + population exposure only",
                   "+ HDI + coastal growth")
 names(stage_labels) <- c(stage_top, stage_bottom)
 
-# =============================================================================
-# SECTION I: LOAD UPSTREAM OUTPUT
-# =============================================================================
 
+# Read Step 9 global projections.
 decomp_table <- read.csv(
   paste0("Intermediate outputs/Output from Step 9/decomposition_table_population_methodology_",
          step9_date_append_output, ".csv"),
   stringsAsFactors = FALSE
 )
 
-# =============================================================================
-# SECTION II: FILTER TO SELECTED SCENARIOS/STAGE + DERIVE PERCENT CIs
-# =============================================================================
 
-# Historical baseline (same value for both years by construction in Step 9,
-# but keep it per-Year in case that ever changes)
 baseline <- decomp_table %>%
   filter(Scenario == "Historical baseline") %>%
   dplyr::select(Year, hist_ann_deaths = Ann_deaths)
 
+# Prepare plotted mortality changes and confidence bounds.
 plot_data <- decomp_table %>%
   filter(Scenario %in% c(stage_top, stage_bottom), SSP %in% scenarios_to_plot) %>%
   left_join(baseline, by = "Year") %>%
@@ -134,35 +85,22 @@ if (length(missing_scenarios) > 0) {
           paste(missing_scenarios, collapse = ", "))
 }
 
-# Order scenarios by ascending 2050 value in the BOTTOM row (fully
-# decomposed estimate) -- the headline stage -- and hold that order
-# consistent across both rows/both years.
 scenario_order <- plot_data %>%
   filter(Scenario == stage_bottom, Year == "2050") %>%
   arrange(Pct_vs_historical) %>%
   pull(SSP)
 
-# Fall back to scenarios_to_plot order for any scenario missing a 2050
-# bottom-row value (shouldn't normally happen)
 scenario_order <- c(scenario_order, setdiff(scenarios_to_plot, scenario_order))
 
 plot_data <- plot_data %>%
   mutate(SSP = factor(SSP, levels = scenario_order))
 
-# =============================================================================
-# SECTION III: PLOT
-# =============================================================================
 
 n_scen <- length(scenario_order)
-# Skip YlGnBu's 2 lightest shades (near-white/pale yellow -- nearly
-# invisible on a white background) before interpolating across the
-# remaining, better-contrast portion of the ramp.
 pal_full <- RColorBrewer::brewer.pal(9, "YlGnBu")
 pal <- colorRampPalette(pal_full[3:9])(n_scen)
 names(pal) <- scenario_order
 
-# Panel letter labels (a)-(d) for the 2x2 Stage_label x Year grid, in
-# standard reading order (top-left, top-right, bottom-left, bottom-right)
 panel_letters <- expand.grid(
   Stage_label = levels(plot_data$Stage_label),
   Year = levels(plot_data$Year)
@@ -170,6 +108,7 @@ panel_letters <- expand.grid(
   arrange(Stage_label, Year) %>%
   mutate(label = paste0("(", letters[1:4], ")"))
 
+# Generate and save Figure 3.
 figure.3 <- ggplot(plot_data, aes(x = SSP, y = Pct_vs_historical, color = SSP)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
   geom_errorbar(aes(ymin = Pct_lcl, ymax = Pct_ucl), width = 0.15, linewidth = 0.7) +
@@ -203,9 +142,6 @@ figure.3 <- ggplot(plot_data, aes(x = SSP, y = Pct_vs_historical, color = SSP)) 
     plot.caption = element_text(hjust = 0, size = 8, color = "grey40")
   )
 
-# =============================================================================
-# SECTION IV: WRITE OUTPUT
-# =============================================================================
 
 ggsave(
   filename = paste0("Output/Plots/Fig 3 ", date_append_output, ".pdf"),

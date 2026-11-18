@@ -1,46 +1,15 @@
-##########################################
-# Figure 4 - Geographic projections        #
-#                                          #
-# 2026-07-14                               #
-# Ryan Calder                              #
-# Notes added by Claude                    #
-##########################################
-
-# Freestanding figure script, built directly on Step 9's current output --
-# not a relocation of any plotting code from 8_ModelFitting_and_SLR_projections.R. Step 9's
-# country_master (bootstrap-based CIs, six-stage population/HDI/coastal-
-# growth decomposition) has no equivalent in that script's plotting logic,
-# which depended on the pre-Step-9 single-treatment forecast pipeline.
+# Figure 4: Geographic mortality projections and country comparisons
 #
-# Draws exclusively on:
-#   - country_master, as saved by Step 9 (final per-country point estimates
-#     + bootstrap CIs; no re-derivation)
-#   - ci_base, as saved by Step 8 (final per-country historical mean deaths
-#     per event + event counts; no re-derivation)
-# The only new calculation here is converting country-level ann_deaths /
-# ann_deaths_lcl / ann_deaths_ucl into percent-change-vs-historical terms,
-# using each country's own historical annual death rate. That rate itself
-# uses the exact same formula Step 9 already uses for the GLOBAL historical
-# baseline (meanDeaths * nEvents / N_YEARS) -- applied per country instead
-# of summed across all countries, not a new derivation.
+# Script dependencies:
+#   - Step 8: CountryDeathCIs <date>.csv
+#   - Step 9: Country_level_master_database_<date>.csv and decomposition_table_population_methodology_<date>.csv
+# R packages: dplyr, ggplot2, ggplotify, ggrepel, grid, patchwork, RColorBrewer, rnaturalearth, scales, sf, tidyr
+# Outputs:
+#   - Output/Plots/Fig 4 <date>.pdf
+# Computation:
+#   - Computes country-level percentage changes from the historical baseline; maps medians across selected SSPs and plots country-specific scenario results.
 #
-# Maps (4a/4b) and the top-10 detail panels (4c/4d) both use the same
-# decomposition stage -- SLR + population exposure only (stage_use,
-# matching Figure 3's stage_top) -- rather than the fully decomposed
-# estimate. This isolates SLR + national population trends in the figure,
-# with no HDI, no NB population covariate, and no coastal-growth
-# multiplier anywhere in it.
-#
-# The maps' median-across-scenarios summary excludes BOUND_worst/
-# BOUND_best (scenarios_for_median, 5 scenarios only), while the detail
-# panels (4c/4d) show all 7 scenarios individually, including the two
-# bounding ones. BOUND_worst/BOUND_best are deliberately decoupled
-# extremes (mismatched climate/socioeconomic pairings constructed to
-# bracket the outcome space), not internally-consistent "plausible"
-# scenarios like the other 5 -- folding them into a median would conflate
-# the range of uncertainty with the central estimate. They remain fully
-# visible as explicit comparisons in 4c/4d, just not blended into the
-# maps' summary statistic.
+# Execute from the project analysis directory containing Intermediate outputs/.
 
 rm(list = ls())
 
@@ -58,30 +27,27 @@ library(ggplotify)
 library(patchwork)
 library(RColorBrewer)
 
-# EDIT THIS to the absolute path of your local copy of the project root (the
-# folder that contains this script plus "Inputs/", "Intermediate outputs/",
-# and "Output/"). This is the ONLY machine-specific line in this script.
-setwd("~/coastal_flood_mortality")
+project_dir <- getwd()
+if (!dir.exists(file.path(project_dir, "Intermediate outputs")) &&
+    dir.exists(file.path(project_dir, "Claude", "Intermediate outputs"))) {
+  project_dir <- file.path(project_dir, "Claude")
+}
+if (!dir.exists(file.path(project_dir, "Intermediate outputs"))) {
+  stop("Run this script from the directory containing Intermediate outputs/.")
+}
+setwd(project_dir)
 
 dir.create("Output/Plots", showWarnings = FALSE, recursive = TRUE)
 
-# Date suffix identifying which Step 8 / Step 9 runs to pull from
-step8_date_append_output <- "2026-07-20"
-step9_date_append_output <- "2026-07-20"
+step8_date_append_output <- "2026-11-13"
+step9_date_append_output <- "2026-11-14"
 
-# Date suffix for files written by this script
 date_append_output <- format(Sys.Date(), "%Y-%m-%d")
 
 N_YEARS <- 35   # matches Step 9's N_YEARS -- historical study period length
 
-# =============================================================================
-# USER CONFIGURATION: choose which scenarios/stage feed the maps + top-10
-# panels. Same scenario labels and decomposition-stage labels as Figure 3 --
-# see that script's header comment for the full valid list of each. Kept in
-# sync with Figure 3's defaults so the two figures reflect the same
-# methodology; change here if you want Figure 4 to use a different subset.
-# =============================================================================
 
+# Configure scenario sets and methodology stage.
 scenarios_to_plot <- c(
   "SSP1.19",
   "SSP1.26_med",
@@ -92,31 +58,14 @@ scenarios_to_plot <- c(
   "BOUND_best"
 )
 
-# The 5 internally-consistent, SSP-matched scenarios only -- excludes
-# BOUND_worst/BOUND_best. Used for the MAPS' median calculation:
-# BOUND_worst/BOUND_best are deliberately decoupled extremes (mismatched
-# climate/socioeconomic pairings constructed to bracket the outcome
-# space), not "plausible middle-ground" scenarios -- folding them into a
-# median conflates the range of uncertainty with the central estimate.
-# They still appear individually in panels 4c/4d as explicit comparisons,
-# just not blended into this summary statistic.
 scenarios_for_median <- c("SSP1.19", "SSP1.26_med", "SSP2.45", "SSP3.70", "SSP5.85_med")
 
-# Single decomposition stage used for BOTH the maps (4a/4b) and the
-# top-10 detail panels (4c/4d): SLR + population exposure only, matching
-# Figure 3's stage_top. Maps and detail panels intentionally show the
-# same stage, so the two views of the figure stay aligned with each
-# other rather than mixing different decomposition levels.
 stage_use <- " + Population (exposure only)"
 
-# Minimum historical event count for a country to be eligible for the
-# top-10 "largest projected increase" panels (4c/4d).
 MIN_EVENTS_FOR_TOP10 <- 10
 
-# =============================================================================
-# SECTION I: LOAD UPSTREAM OUTPUT
-# =============================================================================
 
+# Read historical and projected country mortality.
 ci_base <- read.csv(paste0("Intermediate outputs/Output from Step 8/Country tables/CountryDeathCIs ", step8_date_append_output, ".csv"))
 
 country_master <- read.csv(
@@ -124,20 +73,13 @@ country_master <- read.csv(
   stringsAsFactors = FALSE
 )
 
-# Loaded ONLY to compute scenario_order the same way Figure 3 does (see
-# below) -- ranking by the GLOBAL aggregate value, not a country-averaged
-# one, so the two figures show scenarios in the same left-to-right/color
-# order for easy cross-referencing.
 decomp_table <- read.csv(
   paste0("Intermediate outputs/Output from Step 9/decomposition_table_population_methodology_", step9_date_append_output, ".csv"),
   stringsAsFactors = FALSE
 )
 
-# =============================================================================
-# SECTION II: BASEMAP + COUNTRY CODE HARMONIZATION
-# (identical to Figure 2's basemap setup)
-# =============================================================================
 
+# Prepare country boundaries.
 world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf") |>
   dplyr::select(iso_a3, name_long, geometry)
 
@@ -234,13 +176,7 @@ separate_overlaps <- function(df, thresh_deg = 1, offset_deg = 0.5, wrap_datelin
     dplyr::select(-`_cluster`, -`_k`, -`_idx`, -`_angle`, -`_r`)
 }
 
-# =============================================================================
-# SECTION III: COUNTRY-LEVEL HISTORICAL BASELINE + PERCENT CHANGE
-# =============================================================================
 
-# Same formula Step 9 uses for the global historical baseline
-# (hist_ann_deaths <- sum(ci_base$meanDeaths * ci_base$nEvents) / N_YEARS),
-# applied per country instead of summed.
 hist_country <- ci_base %>%
   transmute(Country_Code, hist_ann_deaths = meanDeaths * nEvents / N_YEARS)
 
@@ -254,11 +190,6 @@ proj_data <- country_master %>%
     pctInc_ucl = 100 * (ann_deaths_ucl - hist_ann_deaths) / hist_ann_deaths
   )
 
-# SEPARATE dataset for the top-10 detail panels (4c/4d) -- same stage as
-# the maps now, but ALL 7 scenarios (including BOUND_worst/BOUND_best),
-# since these panels show each scenario individually rather than a
-# median, and the bounding scenarios are exactly what should appear here
-# as explicit comparisons.
 proj_data_detail <- country_master %>%
   filter(methodology == stage_use, ssp %in% scenarios_to_plot) %>%
   left_join(hist_country, by = "Country_Code") %>%
@@ -269,9 +200,6 @@ proj_data_detail <- country_master %>%
     pctInc_ucl = 100 * (ann_deaths_ucl - hist_ann_deaths) / hist_ann_deaths
   )
 
-# Median pctInc across the selected scenarios, one row per Country_Code x
-# year -- this is the map-panel summary (4a/4b), matching the original
-# figure's "median across settings" approach.
 median_inc <- proj_data %>%
   group_by(year, Country_Code) %>%
   summarise(
@@ -283,11 +211,6 @@ median_inc <- proj_data %>%
 median_inc_50  <- median_inc %>% filter(year == "2050")
 median_inc_100 <- median_inc %>% filter(year == "2100")
 
-# Same median-across-scenarios summary, but for the DETAIL stage (used to
-# select/rank the top-10 countries for panels 4c/4d, so both the country
-# selection AND the displayed values reflect the same, more limited
-# mechanism -- not top-10 countries selected under the full decomposition
-# but displayed under a different stage).
 median_inc_detail <- proj_data_detail %>%
   group_by(year, Country_Code) %>%
   summarise(
@@ -299,9 +222,6 @@ median_inc_detail <- proj_data_detail %>%
 median_inc_detail_50  <- median_inc_detail %>% filter(year == "2050")
 median_inc_detail_100 <- median_inc_detail %>% filter(year == "2100")
 
-# =============================================================================
-# SECTION IV: MAP DATA (panels 4a/4b)
-# =============================================================================
 
 map_df_50  <- world |> dplyr::left_join(median_inc_50,  by = c("iso_a3" = "Country_Code"))
 map_df_100 <- world |> dplyr::left_join(median_inc_100, by = c("iso_a3" = "Country_Code"))
@@ -320,6 +240,7 @@ bubbles_100 <- make_bubbles_for(median_inc_100)
 
 fmt_pct_ticks <- function(x) paste0(scales::number(x, accuracy = 1), "%")
 
+# Construct geographic projection panels.
 plot_panel_diverging <- function(map_df, bubbles_df, value_var,
                                  title, legend_title,
                                  limit_lo = NULL, limit_hi = NULL,
@@ -373,17 +294,6 @@ plot_panel_diverging <- function(map_df, bubbles_df, value_var,
     ) +
     scale_fill_gradientn(
       colors = c("blue", "white", "red"),
-      # Position white at 0's TRUE fractional location between limit_lo and
-      # limit_hi -- NOT forced to the 50% midpoint the way
-      # scale_fill_gradient2()'s default rescaler does. That default
-      # forces blue/red to be symmetric using whichever side has the
-      # larger range for BOTH sides -- since our positive range (up to
-      # +652%) is ~11x larger than our negative range (down to -55.7%),
-      # the old gradient2 compressed the ENTIRE negative range into an
-      # imperceptibly narrow, uniformly pale sliver near white (even
-      # PNG's -95% barely showed as blue). This fixes it: each side now
-      # gets the full blue-to-white or white-to-red transition across its
-      # own actual range.
       values = scales::rescale(c(limit_lo, 0, limit_hi), to = c(0, 1)),
       limits = c(limit_lo, limit_hi),
       oob = scales::squish,
@@ -410,16 +320,7 @@ plot_panel_diverging <- function(map_df, bubbles_df, value_var,
     )
 }
 
-# Shared color scale range across BOTH years (2050 and 2100), computed
-# once from the combined data -- so a given % change reads as the same
-# color in both maps, rather than each map auto-scaling to its own data
-# range independently. Diverging scale (blue = decrease, white = 0,
-# red = increase) is preserved throughout -- decreases are allowed and
-# shown, not clipped.
 shared_vals <- c(map_df_50$pctInc, map_df_100$pctInc, bubbles_50$pctInc, bubbles_100$pctInc)
-# Fixed at -100% (the theoretical floor -- a 100% decrease means zero
-# deaths, so nothing can go lower) rather than a data-driven percentile.
-# -100% now renders as the full, most-saturated blue.
 shared_limit_lo <- -100
 shared_limit_hi <- as.numeric(quantile(shared_vals, 0.99, na.rm = TRUE))
 
@@ -439,34 +340,18 @@ figure.4b <- plot_panel_diverging(
   limit_lo = shared_limit_lo, limit_hi = shared_limit_hi
 )
 
-# =============================================================================
-# SECTION V: TOP-10 DETAIL PANELS (4c/4d)
-# =============================================================================
 
-# Scenario order: matches Figure 3's EXACT ranking method -- ascending by
-# the GLOBAL aggregate value (decomp_table's Pct_vs_historical) at the
-# fully-decomposed stage, 2050 -- NOT a country-averaged mean. This
-# deliberately differs from stage_use (which is the SLR+population-
-# exposure-only stage actually displayed in this figure's maps/panels):
-# the ranking always uses the fully-decomposed stage, matching Figure 3,
-# purely so both figures order/color scenarios identically for easy
-# cross-referencing. A country-averaged ranking (the previous approach)
-# can diverge from the global one -- e.g. Best case/Worst case can
-# reverse for individual countries (Madagascar), which pulled the mean-
-# across-countries ranking away from what Figure 3 shows.
 scenario_order <- decomp_table %>%
   filter(Scenario == " + Population (both) & HDI & coastal growth 2", Year == "2050") %>%
   arrange(Pct_vs_historical) %>%
   pull(SSP)
 scenario_order <- c(scenario_order, setdiff(scenarios_to_plot, scenario_order))
 
-# Same palette fix as Figure 3: skip YlGnBu's 2 lightest shades (near-
-# white/pale yellow -- nearly invisible on a white background) before
-# interpolating across the remaining, better-contrast portion of the ramp.
 pal_full <- RColorBrewer::brewer.pal(9, "YlGnBu")
 pal <- colorRampPalette(pal_full[3:9])(length(scenario_order))
 names(pal) <- scenario_order
 
+# Construct the country comparison panels.
 make_top10_panel <- function(median_inc_df, proj_data, yr, title) {
   eligible <- median_inc_df %>% filter(events > MIN_EVENTS_FOR_TOP10)
   top10_order <- eligible %>%
@@ -503,10 +388,8 @@ figure.4c <- make_top10_panel(median_inc_detail_50,  proj_data_detail, "2050",
 figure.4d <- make_top10_panel(median_inc_detail_100, proj_data_detail, "2100",
                                "(d) Countries with largest projected increase, by 2100\n(>10 historical events, SLR + population exposure only)")
 
-# =============================================================================
-# SECTION VI: ASSEMBLE + WRITE OUTPUT
-# =============================================================================
 
+# Combine and save Figure 4.
 figure.4 <- figure.4a / figure.4b / (figure.4c + figure.4d) +
   plot_layout(heights = c(2, 2, 1))
 
@@ -517,3 +400,4 @@ ggsave(
 )
 
 message("Figure 4 written to Output/Plots/Fig 4 ", date_append_output, ".pdf")
+

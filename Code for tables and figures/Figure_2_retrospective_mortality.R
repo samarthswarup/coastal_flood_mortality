@@ -1,16 +1,14 @@
-##########################################
-# Figure 2 - Retrospective mortality      #
-#                                         #
-# 2026-07-14                              #
-# Ryan Calder                             #
-# Notes added by Claude                   #
-##########################################
-
-# Freestanding figure script, run independently of the numbered pipeline.
-# Draws exclusively on three already-final country-level CSV outputs from
-# Step 8 (CountryDeathCIs / CountryDeathCIs50 / CountryDeathCIs100) plus the
-# rnaturalearth basemap. No re-derivation of model estimates, CIs, or
-# country-level means -- those are already final in the CSVs.
+# Figure 2: Retrospective coastal flood mortality by country
+#
+# Script dependencies:
+#   - Step 8: CountryDeathCIs, CountryDeathCIs50 and CountryDeathCIs100 CSV files.
+# R packages: dplyr, ggplot2, ggplotify, ggrepel, grid, patchwork, rnaturalearth, scales, sf, stringr
+# Outputs:
+#   - Output/Plots/Fig 2 <date>.pdf
+# Computation:
+#   - Maps of country-level fitted mortality and annual deaths; country-level rate and death-count intervals for countries meeting EVENT_THRESHOLD.
+#
+# Execute from the project analysis directory containing Intermediate outputs/.
 
 rm(list = ls())
 
@@ -25,37 +23,35 @@ library(scales)
 library(ggplotify)
 library(patchwork)
 
-# EDIT THIS to the absolute path of your local copy of the project root (the
-# folder that contains this script plus "Inputs/", "Intermediate outputs/",
-# and "Output/"). This is the ONLY machine-specific line in this script.
-setwd("~/coastal_flood_mortality")
+project_dir <- getwd()
+if (!dir.exists(file.path(project_dir, "Intermediate outputs")) &&
+    dir.exists(file.path(project_dir, "Claude", "Intermediate outputs"))) {
+  project_dir <- file.path(project_dir, "Claude")
+}
+if (!dir.exists(file.path(project_dir, "Intermediate outputs"))) {
+  stop("Run this script from the directory containing Intermediate outputs/.")
+}
+setwd(project_dir)
 
 dir.create("Output/Plots", showWarnings = FALSE, recursive = TRUE)
 
-# Date suffix identifying which Step 8 run to pull country-level CSVs from
-step8_date_append_output <- "2026-07-20"
+step8_date_append_output <- "2026-11-13"
 
-# Date suffix for files written by this script
 date_append_output <- format(Sys.Date(), "%Y-%m-%d")
 
 EVENT_THRESHOLD <- 50
 
-# =============================================================================
-# SECTION I: LOAD UPSTREAM OUTPUT
-# =============================================================================
 
+# Load Step 8 country-level estimates.
 ci_base <- read.csv(paste0("Intermediate outputs/Output from Step 8/Country tables/CountryDeathCIs ", step8_date_append_output, ".csv"))
 ci_50   <- read.csv(paste0("Intermediate outputs/Output from Step 8/Country tables/CountryDeathCIs50 ", step8_date_append_output, ".csv"))
 ci_100  <- read.csv(paste0("Intermediate outputs/Output from Step 8/Country tables/CountryDeathCIs100 ", step8_date_append_output, ".csv"))
 
-# =============================================================================
-# SECTION II: BASEMAP + COUNTRY CODE HARMONIZATION
-# =============================================================================
 
+# Prepare country boundaries and geographic joins.
 world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf") |>
   dplyr::select(iso_a3, name_long, geometry)
 
-# Fix country codes in world object
 world$iso_a3[which(world$name_long == "France")] <- "FRA"
 world$iso_a3[which(world$name_long == "Norway")] <- "NOR"
 
@@ -64,23 +60,18 @@ world$iso_a3[which(world$iso_a3 == "CUW" |
                     world$iso_a3 == "SXM" |
                     world$iso_a3 == "BES")] <- "BES,CUW,ABW,SXM"
 
-# Join by ISO3
 map_df <- world |>
   left_join(ci_base, by = c("iso_a3" = "Country_Code"))
 
-# Identify countries that didn't plot on map
 non.plotting.countries <-
   ci_base$Country_Code[which(is.na(match(ci_base$Country_Code, map_df$iso_a3)))]
 
-# (optional) cap extreme values for nicer color scaling
 cap <- quantile(map_df$meanDeaths, 1, na.rm = TRUE)
 map_df <- map_df |>
   mutate(meanDeaths_capped = pmin(meanDeaths, cap))
 
-# =============================================================================
-# SECTION III: SMALL-ISLAND / TERRITORY BUBBLE COORDINATES
-# =============================================================================
 
+# Set geographic point coordinates for small countries and territories.
 centroid_for_code <- function(code, world_sf) {
   parts <- str_split(code, ",", simplify = TRUE)
   parts <- parts[parts != ""]
@@ -104,7 +95,6 @@ coords_lookup <- tibble::tribble(
 
 coords_lookup_add <- tibble::tribble(
   ~Country_Code, ~lon,      ~lat,
-  # Caribbean + Atlantic
   "ATG",         -61.80,    17.11,
   "BHS",         -76.00,    24.30,
   "GRD",         -61.68,    12.12,
@@ -127,7 +117,6 @@ coords_lookup_add <- tibble::tribble(
   "BLM",         -62.85,    17.90,
   "MAF",         -63.05,    18.07,
 
-  # Pacific microstates / territories
   "COK",        -159.78,   -21.23,
   "FJI",         178.00,   -17.80,
   "NIU",        -169.87,   -19.05,
@@ -147,14 +136,12 @@ coords_lookup_add <- tibble::tribble(
   "NCL",         165.60,   -21.30,
   "GUM",         144.79,    13.44,
 
-  # Indian Ocean islands
   "MDV",          73.51,     4.18,
   "SYC",          55.45,    -4.62,
   "MUS",          57.55,   -20.35,
   "COM",          43.33,   -11.64,
   "CPV",         -23.65,    15.11,
 
-  # East & SE Asia territories
   "HKG",         114.17,    22.32,
   "MAC",         113.55,    22.20
 )
@@ -165,7 +152,6 @@ coords_lookup <- dplyr::bind_rows(
 ) |>
   dplyr::distinct(Country_Code, .keep_all = TRUE)
 
-# Codes that get bubbles: in coords_lookup AND have metrics in ci_base
 candidate_codes <- intersect(coords_lookup$Country_Code, ci_base$Country_Code)
 
 bubbles_df <- ci_base |>
@@ -205,9 +191,6 @@ separate_overlaps <- function(df, thresh_deg = 1, offset_deg = 0.5, wrap_datelin
 bubbles_df_sep <- bubbles_df %>%
   separate_overlaps(thresh_deg = 1, offset_deg = 0.3)
 
-# =============================================================================
-# SECTION IV: PANEL PLOTTING HELPERS (Figs. 2a-b: choropleth + bubble maps)
-# =============================================================================
 
 fmt_log_ticks <- function(x) {
   sapply(x, function(v) {
@@ -226,13 +209,13 @@ fmt_log_ticks <- function(x) {
   })
 }
 
-# Add deaths per year for Fig. 2b
 map_df <- map_df |>
   dplyr::mutate(deaths_per_year = meanDeaths * nEvents / 35)
 
 bubbles_df_sep <- bubbles_df_sep |>
   dplyr::mutate(deaths_per_year = meanDeaths * nEvents / 35)
 
+# Construct mapped mortality panels.
 plot_panel <- function(map_df, bubbles_df_sep, value_var,
                         title, legend_title,
                         cap_pctl = 1, legend_y = 0.035, barwidth_npc = 0.50) {
@@ -305,10 +288,8 @@ plot_panel <- function(map_df, bubbles_df_sep, value_var,
     )
 }
 
-# =============================================================================
-# SECTION V: BUILD PANELS
-# =============================================================================
 
+# Construct four figure panels.
 figure.2a <- plot_panel(
   map_df, bubbles_df_sep,
   value_var    = "meanDeaths",
@@ -324,8 +305,6 @@ figure.2b <- plot_panel(
   legend_title = "Deaths per year (predicted; log scale)"
 )
 
-# Figure 2c: Average per-event death rate for countries with more than
-# EVENT_THRESHOLD events
 keep_base <- ci_base[ci_base$nEvents >= EVENT_THRESHOLD, ]
 keep_50   <- ci_50[ci_50$nEvents >= EVENT_THRESHOLD, ]
 keep_100  <- ci_100[ci_100$nEvents >= EVENT_THRESHOLD, ]
@@ -352,7 +331,6 @@ figure.2c <- ggplotify::as.ggplot(function() {
   box()
 })
 
-# Figure 2d: Deaths per event
 keep_base <- keep_base[order(keep_base$meanDeaths), ]
 
 figure.2d <- ggplotify::as.ggplot(function() {
@@ -375,10 +353,8 @@ figure.2d <- ggplotify::as.ggplot(function() {
   box()
 })
 
-# =============================================================================
-# SECTION VI: ASSEMBLE + WRITE OUTPUT
-# =============================================================================
 
+# Combine and save Figure 2.
 figure.2 <- (figure.2a + figure.2b) / (figure.2c + figure.2d)
 
 ggsave(
